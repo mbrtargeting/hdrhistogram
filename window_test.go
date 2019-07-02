@@ -1,14 +1,12 @@
-package hdrhistogram_test
+package hdrhistogram
 
 import (
 	"math/rand"
 	"testing"
-
-	"github.com/codahale/hdrhistogram"
 )
 
 func TestWindowedHistogram(t *testing.T) {
-	w := hdrhistogram.NewWindowed(2, 1, 1000, 3)
+	w := NewWindowed(2, 1, 1000, 3)
 
 	for i := 0; i < 100; i++ {
 		w.Current.RecordValue(int64(i))
@@ -30,7 +28,7 @@ func TestWindowedHistogram(t *testing.T) {
 }
 
 func BenchmarkWindowedHistogramRecordAndRotate(b *testing.B) {
-	w := hdrhistogram.NewWindowed(3, 1, 10000000, 3)
+	w := NewWindowed(3, 1, 10000000, 3)
 	b.ReportAllocs()
 	b.ResetTimer()
 
@@ -46,7 +44,7 @@ func BenchmarkWindowedHistogramRecordAndRotate(b *testing.B) {
 }
 
 func BenchmarkWindowedHistogramMerge(b *testing.B) {
-	w := hdrhistogram.NewWindowed(3, 1, 10000000, 3)
+	w := NewWindowed(3, 1, 10000000, 3)
 	for i := 0; i < 10000000; i++ {
 		if err := w.Current.RecordValue(100); err != nil {
 			b.Fatal(err)
@@ -71,7 +69,7 @@ func BenchmarkWindowedHistogramRotateAndMerge(b *testing.B) {
 	valuesPerHistogram := 100000
 	valueRange := maxValue - minValue
 	windowSize := 100
-	w := hdrhistogram.NewWindowed(windowSize, minValue, maxValue, 2)
+	w := NewWindowed(windowSize, minValue, maxValue, 2)
 
 	for i := 0; i < windowSize; i++ {
 		for j := 0; j < valuesPerHistogram; j++ {

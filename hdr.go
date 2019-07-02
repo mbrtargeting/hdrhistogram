@@ -6,6 +6,8 @@ package hdrhistogram
 import (
 	"fmt"
 	"math"
+	"sync"
+	"sync/atomic"
 )
 
 // A Bracket is a part of a cumulative distribution.
@@ -39,6 +41,7 @@ type Histogram struct {
 	countsLen                   int32
 	totalCount                  int64
 	counts                      []int64
+	snapMu                      sync.RWMutex
 }
 
 // New returns a new Histogram instance capable of tracking values in the given
@@ -206,10 +209,12 @@ func (h *Histogram) StdDev() float64 {
 // Reset deletes all recorded values and restores the histogram to its original
 // state.
 func (h *Histogram) Reset() {
+	h.snapMu.Lock()
 	h.totalCount = 0
 	for i := range h.counts {
 		h.counts[i] = 0
 	}
+	h.snapMu.Unlock()
 }
 
 // RecordValue records the given value, returning an error if the value is out
@@ -256,8 +261,12 @@ func (h *Histogram) RecordValues(v, n int64) error {
 	if idx < 0 || int(h.countsLen) <= idx {
 		return fmt.Errorf("value %d is too large to be recorded", v)
 	}
-	h.counts[idx] += n
-	h.totalCount += n
+
+	// this is not actually 'Read' operation, but here allows concurrent recording but blocks when taking snapshot
+	h.snapMu.RLock()
+	atomic.AddInt64(&h.counts[idx], n)
+	atomic.AddInt64(&h.totalCount, n)
+	h.snapMu.RUnlock()
 
 	return nil
 }
@@ -269,8 +278,12 @@ func (h *Histogram) UnrecordValues(v, n int64) error {
 	if idx < 0 || int(h.countsLen) <= idx {
 		return fmt.Errorf("value %d is too large to be unrecorded", v)
 	}
-	h.counts[idx] -= n
-	h.totalCount -= n
+
+	// this is not actually 'Read' operation, but here allows concurrent recording but blocks when taking snapshot
+	h.snapMu.RLock()
+	atomic.AddInt64(&h.counts[idx], -n)
+	atomic.AddInt64(&h.totalCount, -n)
+	h.snapMu.RUnlock()
 
 	return nil
 }
@@ -383,9 +396,8 @@ func (h *Histogram) Equals(other *Histogram) bool {
 
 // Export returns a snapshot view of the Histogram. This can be later passed to
 // Import to construct a new Histogram with the same state.
-func (h *Histogram) Export() *Snapshot {
+func (h *Histogram) snapshot(drain bool) *Snapshot {
 	highestCount := int32(0)
-	found := int64(0)
 
 	for i := int32(0); i < h.countsLen; i++ {
 		if h.counts[i] > 0 {
@@ -393,14 +405,21 @@ func (h *Histogram) Export() *Snapshot {
 		}
 	}
 
-	counts := make([]int64, 0, highestCount)
-
-	for i := int32(0); i <= highestCount; i++ {
-		if found >= h.totalCount {
-			break
-		}
-		counts = append(counts, h.counts[i])
-		found += h.counts[i]
+	var counts []int64
+	// acquire exclusive lock
+	if drain {
+		// swap counts
+		newCounts := make([]int64, h.countsLen)
+		h.snapMu.Lock()
+		counts = h.counts[:highestCount+1]
+		h.counts = newCounts
+		h.snapMu.Unlock()
+	} else {
+		// copy counts
+		counts = make([]int64, highestCount+1)
+		h.snapMu.Lock()
+		copy(counts, h.counts)
+		h.snapMu.Unlock()
 	}
 
 	return &Snapshot{
@@ -409,6 +428,17 @@ func (h *Histogram) Export() *Snapshot {
 		SignificantFigures:    h.significantFigures,
 		Counts:                counts,
 	}
+}
+
+// Export returns a snapshot view of the Histogram. This can be later passed to
+// Import to construct a new Histogram with the same state.
+func (h *Histogram) Export() *Snapshot {
+	return h.snapshot(false)
+}
+
+// Drain = Export + Reset
+func (h *Histogram) Drain() *Snapshot {
+	return h.snapshot(true)
 }
 
 // Import returns a new Histogram populated from the Snapshot data (which the

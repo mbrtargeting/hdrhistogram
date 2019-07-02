@@ -1,13 +1,15 @@
-package hdrhistogram_test
+package hdrhistogram
 
 import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/rand"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
-
-	"github.com/codahale/hdrhistogram"
+	"time"
 )
 
 func TestHighSigFig(t *testing.T) {
@@ -16,7 +18,7 @@ func TestHighSigFig(t *testing.T) {
 		3964974, 12718782,
 	}
 
-	hist := hdrhistogram.New(459876, 12718782, 5)
+	hist := New(459876, 12718782, 5)
 	for _, sample := range input {
 		hist.RecordValue(sample)
 	}
@@ -27,7 +29,7 @@ func TestHighSigFig(t *testing.T) {
 }
 
 func TestValueAtQuantile(t *testing.T) {
-	h := hdrhistogram.New(1, 10000000, 3)
+	h := New(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -56,7 +58,7 @@ func TestValueAtQuantile(t *testing.T) {
 }
 
 func TestMean(t *testing.T) {
-	h := hdrhistogram.New(1, 10000000, 3)
+	h := New(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -74,7 +76,7 @@ func toFixed(num float64, precision int) float64 {
 	return float64(math.Round(num*output)) / output
 }
 func TestStdDev(t *testing.T) {
-	h := hdrhistogram.New(1, 10000000, 3)
+	h := New(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -88,7 +90,7 @@ func TestStdDev(t *testing.T) {
 }
 
 func TestTotalCount(t *testing.T) {
-	h := hdrhistogram.New(1, 10000000, 3)
+	h := New(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -101,7 +103,7 @@ func TestTotalCount(t *testing.T) {
 }
 
 func TestMax(t *testing.T) {
-	h := hdrhistogram.New(1, 10000000, 3)
+	h := New(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -115,7 +117,7 @@ func TestMax(t *testing.T) {
 }
 
 func TestReset(t *testing.T) {
-	h := hdrhistogram.New(1, 10000000, 3)
+	h := New(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -131,8 +133,8 @@ func TestReset(t *testing.T) {
 }
 
 func TestMerge(t *testing.T) {
-	h1 := hdrhistogram.New(1, 1000, 3)
-	h2 := hdrhistogram.New(1, 1000, 3)
+	h1 := New(1, 1000, 3)
+	h2 := New(1, 1000, 3)
 
 	for i := 0; i < 100; i++ {
 		if err := h1.RecordValue(int64(i)); err != nil {
@@ -154,7 +156,7 @@ func TestMerge(t *testing.T) {
 }
 
 func TestMin(t *testing.T) {
-	h := hdrhistogram.New(1, 10000000, 3)
+	h := New(1, 10000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -168,7 +170,7 @@ func TestMin(t *testing.T) {
 }
 
 func TestByteSize(t *testing.T) {
-	h := hdrhistogram.New(1, 100000, 3)
+	h := New(1, 100000, 3)
 
 	if v, want := h.ByteSize(), 65604; v != want {
 		t.Errorf("ByteSize was %v, but expected %d", v, want)
@@ -176,7 +178,7 @@ func TestByteSize(t *testing.T) {
 }
 
 func TestRecordCorrectedValue(t *testing.T) {
-	h := hdrhistogram.New(1, 100000, 3)
+	h := New(1, 100000, 3)
 
 	if err := h.RecordCorrectedValue(10, 100); err != nil {
 		t.Fatal(err)
@@ -188,7 +190,7 @@ func TestRecordCorrectedValue(t *testing.T) {
 }
 
 func TestRecordCorrectedValueStall(t *testing.T) {
-	h := hdrhistogram.New(1, 100000, 3)
+	h := New(1, 100000, 3)
 
 	if err := h.RecordCorrectedValue(1000, 100); err != nil {
 		t.Fatal(err)
@@ -200,7 +202,7 @@ func TestRecordCorrectedValueStall(t *testing.T) {
 }
 
 func TestCumulativeDistribution(t *testing.T) {
-	h := hdrhistogram.New(1, 100000000, 3)
+	h := New(1, 100000000, 3)
 
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -209,23 +211,23 @@ func TestCumulativeDistribution(t *testing.T) {
 	}
 
 	actual := h.CumulativeDistribution()
-	expected := []hdrhistogram.Bracket{
-		hdrhistogram.Bracket{Quantile: 0, Count: 1, ValueAt: 0},
-		hdrhistogram.Bracket{Quantile: 50, Count: 500224, ValueAt: 500223},
-		hdrhistogram.Bracket{Quantile: 75, Count: 750080, ValueAt: 750079},
-		hdrhistogram.Bracket{Quantile: 87.5, Count: 875008, ValueAt: 875007},
-		hdrhistogram.Bracket{Quantile: 93.75, Count: 937984, ValueAt: 937983},
-		hdrhistogram.Bracket{Quantile: 96.875, Count: 969216, ValueAt: 969215},
-		hdrhistogram.Bracket{Quantile: 98.4375, Count: 984576, ValueAt: 984575},
-		hdrhistogram.Bracket{Quantile: 99.21875, Count: 992256, ValueAt: 992255},
-		hdrhistogram.Bracket{Quantile: 99.609375, Count: 996352, ValueAt: 996351},
-		hdrhistogram.Bracket{Quantile: 99.8046875, Count: 998400, ValueAt: 998399},
-		hdrhistogram.Bracket{Quantile: 99.90234375, Count: 999424, ValueAt: 999423},
-		hdrhistogram.Bracket{Quantile: 99.951171875, Count: 999936, ValueAt: 999935},
-		hdrhistogram.Bracket{Quantile: 99.9755859375, Count: 999936, ValueAt: 999935},
-		hdrhistogram.Bracket{Quantile: 99.98779296875, Count: 999936, ValueAt: 999935},
-		hdrhistogram.Bracket{Quantile: 99.993896484375, Count: 1000000, ValueAt: 1000447},
-		hdrhistogram.Bracket{Quantile: 100, Count: 1000000, ValueAt: 1000447},
+	expected := []Bracket{
+		{Quantile: 0, Count: 1, ValueAt: 0},
+		{Quantile: 50, Count: 500224, ValueAt: 500223},
+		{Quantile: 75, Count: 750080, ValueAt: 750079},
+		{Quantile: 87.5, Count: 875008, ValueAt: 875007},
+		{Quantile: 93.75, Count: 937984, ValueAt: 937983},
+		{Quantile: 96.875, Count: 969216, ValueAt: 969215},
+		{Quantile: 98.4375, Count: 984576, ValueAt: 984575},
+		{Quantile: 99.21875, Count: 992256, ValueAt: 992255},
+		{Quantile: 99.609375, Count: 996352, ValueAt: 996351},
+		{Quantile: 99.8046875, Count: 998400, ValueAt: 998399},
+		{Quantile: 99.90234375, Count: 999424, ValueAt: 999423},
+		{Quantile: 99.951171875, Count: 999936, ValueAt: 999935},
+		{Quantile: 99.9755859375, Count: 999936, ValueAt: 999935},
+		{Quantile: 99.98779296875, Count: 999936, ValueAt: 999935},
+		{Quantile: 99.993896484375, Count: 1000000, ValueAt: 1000447},
+		{Quantile: 100, Count: 1000000, ValueAt: 1000447},
 	}
 
 	if !reflect.DeepEqual(actual, expected) {
@@ -234,7 +236,7 @@ func TestCumulativeDistribution(t *testing.T) {
 }
 
 func TestDistribution(t *testing.T) {
-	h := hdrhistogram.New(8, 1024, 3)
+	h := New(8, 1024, 3)
 
 	for i := 0; i < 1024; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
@@ -254,7 +256,7 @@ func TestDistribution(t *testing.T) {
 }
 
 func TestNaN(t *testing.T) {
-	h := hdrhistogram.New(1, 100000, 3)
+	h := New(1, 100000, 3)
 	if math.IsNaN(h.Mean()) {
 		t.Error("mean is NaN")
 	}
@@ -265,7 +267,7 @@ func TestNaN(t *testing.T) {
 
 func TestSignificantFigures(t *testing.T) {
 	const sigFigs = 4
-	h := hdrhistogram.New(1, 10, sigFigs)
+	h := New(1, 10, sigFigs)
 	if h.SignificantFigures() != sigFigs {
 		t.Errorf("Significant figures was %v, expected %d", h.SignificantFigures(), sigFigs)
 	}
@@ -273,7 +275,7 @@ func TestSignificantFigures(t *testing.T) {
 
 func TestLowestTrackableValue(t *testing.T) {
 	const minVal = 2
-	h := hdrhistogram.New(minVal, 10, 3)
+	h := New(minVal, 10, 3)
 	if h.LowestTrackableValue() != minVal {
 		t.Errorf("LowestTrackableValue figures was %v, expected %d", h.LowestTrackableValue(), minVal)
 	}
@@ -281,14 +283,14 @@ func TestLowestTrackableValue(t *testing.T) {
 
 func TestHighestTrackableValue(t *testing.T) {
 	const maxVal = 11
-	h := hdrhistogram.New(1, maxVal, 3)
+	h := New(1, maxVal, 3)
 	if h.HighestTrackableValue() != maxVal {
 		t.Errorf("HighestTrackableValue figures was %v, expected %d", h.HighestTrackableValue(), maxVal)
 	}
 }
 
 func BenchmarkHistogramRecordValue(b *testing.B) {
-	h := hdrhistogram.New(1, 10000000, 3)
+	h := New(1, 10000000, 3)
 	for i := 0; i < 1000000; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
 			b.Fatal(err)
@@ -306,19 +308,19 @@ func BenchmarkNew(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		hdrhistogram.New(1, 120000, 3) // this could track 1ms-2min
+		New(1, 120000, 3) // this could track 1ms-2min
 	}
 }
 
 func TestUnitMagnitudeOverflow(t *testing.T) {
-	h := hdrhistogram.New(0, 200, 4)
+	h := New(0, 200, 4)
 	if err := h.RecordValue(11); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestSubBucketMaskOverflow(t *testing.T) {
-	hist := hdrhistogram.New(2e7, 1e8, 5)
+	hist := New(2e7, 1e8, 5)
 	for _, sample := range [...]int64{1e8, 2e7, 3e7} {
 		hist.RecordValue(sample)
 	}
@@ -339,7 +341,7 @@ func TestExportImport(t *testing.T) {
 	min := int64(1)
 	max := int64(1000)
 	sigfigs := 1
-	h := hdrhistogram.New(min, max, sigfigs)
+	h := New(min, max, sigfigs)
 	for i := 0; i < 100; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
 			t.Fatal(err)
@@ -366,12 +368,12 @@ func TestExportImport(t *testing.T) {
 		t.Error("Could not encode snapshot to JSON")
 	}
 
-	var actual hdrhistogram.Snapshot
+	var actual Snapshot
 	err = json.Unmarshal(b, &actual)
 	if err != nil {
 		t.Error("Could not decode snapshot from JSON")
 	}
-	expected := hdrhistogram.Snapshot{
+	expected := Snapshot{
 		LowestTrackableValue:  1,
 		HighestTrackableValue: 1000,
 		SignificantFigures:    1,
@@ -391,21 +393,83 @@ func TestExportImport(t *testing.T) {
 		t.Error("Not converted to JSON correctly")
 	}
 
-	if imported := hdrhistogram.Import(s); !imported.Equals(h) {
+	if imported := Import(s); !imported.Equals(h) {
 		t.Error("Expected Histograms to be equivalent")
 	}
+}
 
+func TestDrainImport(t *testing.T) {
+	min := int64(1)
+	max := int64(1000)
+	sigfigs := 1
+	h := New(min, max, sigfigs)
+	for i := 0; i < 100; i++ {
+		if err := h.RecordValue(int64(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := h.Drain()
+
+	for _, c := range h.counts {
+		if c != 0 {
+			t.Errorf("Drained histogram should be reset")
+		}
+	}
+
+	if v := s.LowestTrackableValue; v != min {
+		t.Errorf("LowestTrackableValue was %v, but expected %v", v, min)
+	}
+
+	if v := s.HighestTrackableValue; v != max {
+		t.Errorf("HighestTrackableValue was %v, but expected %v", v, max)
+	}
+
+	if v := int(s.SignificantFigures); v != sigfigs {
+		t.Errorf("SignificantFigures was %v, but expected %v", v, sigfigs)
+	}
+
+	b, err := json.Marshal(s)
+
+	if err != nil {
+		t.Error("Could not encode snapshot to JSON")
+	}
+
+	var actual Snapshot
+	err = json.Unmarshal(b, &actual)
+	if err != nil {
+		t.Error("Could not decode snapshot from JSON")
+	}
+	expected := Snapshot{
+		LowestTrackableValue:  1,
+		HighestTrackableValue: 1000,
+		SignificantFigures:    1,
+		Counts:                []int64{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 4, 4, 4, 4, 4, 4, 4},
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		fmt.Println("Actual")
+		fmt.Printf("%v\n", actual.LowestTrackableValue)
+		fmt.Printf("%v\n", actual.HighestTrackableValue)
+		fmt.Printf("%v\n", actual.SignificantFigures)
+		fmt.Printf("%v\n", actual.Counts)
+		fmt.Println("Expected")
+		fmt.Printf("%v\n", expected.LowestTrackableValue)
+		fmt.Printf("%v\n", expected.HighestTrackableValue)
+		fmt.Printf("%v\n", expected.SignificantFigures)
+		fmt.Printf("%v\n", expected.Counts)
+		t.Error("Not converted to JSON correctly")
+	}
 }
 
 func TestEquals(t *testing.T) {
-	h1 := hdrhistogram.New(1, 10000000, 3)
+	h1 := New(1, 10000000, 3)
 	for i := 0; i < 1000000; i++ {
 		if err := h1.RecordValue(int64(i)); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	h2 := hdrhistogram.New(1, 10000000, 3)
+	h2 := New(1, 10000000, 3)
 	for i := 0; i < 10000; i++ {
 		if err := h1.RecordValue(int64(i)); err != nil {
 			t.Fatal(err)
@@ -421,5 +485,51 @@ func TestEquals(t *testing.T) {
 
 	if !h1.Equals(h2) {
 		t.Error("Expected Histograms to be equivalent")
+	}
+}
+
+func TestConcurrentDrain(t *testing.T) {
+	min := int64(1)
+	max := int64(1000)
+	sigfigs := 1
+	h := New(min, max, sigfigs)
+	var wg sync.WaitGroup
+	var done bool
+	var recorded int32
+
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var ctr int32
+			for !done {
+				if err := h.RecordValue(rand.Int63n(100)); err != nil {
+					t.Fatal(err)
+				}
+				ctr++
+				time.Sleep(1) // tiny sleep
+			}
+			atomic.AddInt32(&recorded, ctr)
+		}()
+	}
+
+	var snapshots []*Snapshot
+	for i := 0; i < 10; i++ {
+		snapshots = append(snapshots, h.Drain())
+		time.Sleep(100 * time.Millisecond)
+	}
+	done = true
+	wg.Wait()
+	// drain records inserted after done flag set
+	snapshots = append(snapshots, h.Drain())
+
+	var actualRecorded int64
+	for _, snap := range snapshots {
+		for _, c := range snap.Counts {
+			actualRecorded += c
+		}
+	}
+	if actualRecorded != int64(recorded) {
+		t.Errorf("Recorded values size was %d, but expected %d", actualRecorded, recorded)
 	}
 }
