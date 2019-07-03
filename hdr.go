@@ -266,7 +266,7 @@ func (h *Histogram) RecordValues(v, n int64) error {
 		return fmt.Errorf("value %d is too large to be recorded", v)
 	}
 
-	if h.timeFrom.UnixNano() == 0 {
+	if h.timeFrom.IsZero() {
 		h.timeFrom = time.Now()
 	}
 
@@ -287,7 +287,7 @@ func (h *Histogram) UnrecordValues(v, n int64) error {
 		return fmt.Errorf("value %d is too large to be unrecorded", v)
 	}
 
-	if h.timeFrom.UnixNano() == 0 {
+	if h.timeFrom.IsZero() {
 		h.timeFrom = time.Now()
 	}
 
