@@ -342,13 +342,18 @@ func TestExportImport(t *testing.T) {
 	max := int64(1000)
 	sigfigs := 1
 	h := New(min, max, sigfigs)
+
+	t1 := time.Now().Truncate(0) // remove monotonic clock information
 	for i := 0; i < 100; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
 			t.Fatal(err)
 		}
 	}
+	t2 := time.Now().Truncate(0)
 
 	s := h.Export()
+	s.TimeFrom = t1
+	s.TimeTo = t2
 
 	if v := s.LowestTrackableValue; v != min {
 		t.Errorf("LowestTrackableValue was %v, but expected %v", v, min)
@@ -374,6 +379,8 @@ func TestExportImport(t *testing.T) {
 		t.Error("Could not decode snapshot from JSON")
 	}
 	expected := Snapshot{
+		TimeFrom:              t1,
+		TimeTo:                t2,
 		LowestTrackableValue:  1,
 		HighestTrackableValue: 1000,
 		SignificantFigures:    1,
@@ -381,11 +388,15 @@ func TestExportImport(t *testing.T) {
 	}
 	if !reflect.DeepEqual(actual, expected) {
 		fmt.Println("Actual")
+		fmt.Printf("%v\n", actual.TimeFrom)
+		fmt.Printf("%v\n", actual.TimeTo)
 		fmt.Printf("%v\n", actual.LowestTrackableValue)
 		fmt.Printf("%v\n", actual.HighestTrackableValue)
 		fmt.Printf("%v\n", actual.SignificantFigures)
 		fmt.Printf("%v\n", actual.Counts)
 		fmt.Println("Expected")
+		fmt.Printf("%v\n", expected.TimeFrom)
+		fmt.Printf("%v\n", expected.TimeTo)
 		fmt.Printf("%v\n", expected.LowestTrackableValue)
 		fmt.Printf("%v\n", expected.HighestTrackableValue)
 		fmt.Printf("%v\n", expected.SignificantFigures)
@@ -403,13 +414,18 @@ func TestDrainImport(t *testing.T) {
 	max := int64(1000)
 	sigfigs := 1
 	h := New(min, max, sigfigs)
+
+	t1 := time.Now().Truncate(0)
 	for i := 0; i < 100; i++ {
 		if err := h.RecordValue(int64(i)); err != nil {
 			t.Fatal(err)
 		}
 	}
+	t2 := time.Now().Truncate(0)
 
 	s := h.Drain()
+	s.TimeFrom = t1
+	s.TimeTo = t2
 
 	for _, c := range h.counts {
 		if c != 0 {
@@ -441,6 +457,8 @@ func TestDrainImport(t *testing.T) {
 		t.Error("Could not decode snapshot from JSON")
 	}
 	expected := Snapshot{
+		TimeFrom:              t1,
+		TimeTo:                t2,
 		LowestTrackableValue:  1,
 		HighestTrackableValue: 1000,
 		SignificantFigures:    1,
@@ -448,11 +466,15 @@ func TestDrainImport(t *testing.T) {
 	}
 	if !reflect.DeepEqual(actual, expected) {
 		fmt.Println("Actual")
+		fmt.Printf("%v\n", actual.TimeFrom)
+		fmt.Printf("%v\n", actual.TimeTo)
 		fmt.Printf("%v\n", actual.LowestTrackableValue)
 		fmt.Printf("%v\n", actual.HighestTrackableValue)
 		fmt.Printf("%v\n", actual.SignificantFigures)
 		fmt.Printf("%v\n", actual.Counts)
 		fmt.Println("Expected")
+		fmt.Printf("%v\n", expected.TimeFrom)
+		fmt.Printf("%v\n", expected.TimeTo)
 		fmt.Printf("%v\n", expected.LowestTrackableValue)
 		fmt.Printf("%v\n", expected.HighestTrackableValue)
 		fmt.Printf("%v\n", expected.SignificantFigures)

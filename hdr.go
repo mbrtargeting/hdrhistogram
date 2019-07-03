@@ -8,6 +8,7 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // A Bracket is a part of a cumulative distribution.
@@ -19,6 +20,8 @@ type Bracket struct {
 // A Snapshot is an exported view of a Histogram, useful for serializing them.
 // A Histogram can be constructed from it by passing it to Import.
 type Snapshot struct {
+	TimeFrom              time.Time
+	TimeTo                time.Time
 	LowestTrackableValue  int64
 	HighestTrackableValue int64
 	SignificantFigures    int64
@@ -29,6 +32,7 @@ type Snapshot struct {
 // non-normally distributed data (like latency) with a high degree of accuracy
 // and a bounded degree of precision.
 type Histogram struct {
+	timeFrom                    time.Time
 	lowestTrackableValue        int64
 	highestTrackableValue       int64
 	unitMagnitude               int64
@@ -262,6 +266,10 @@ func (h *Histogram) RecordValues(v, n int64) error {
 		return fmt.Errorf("value %d is too large to be recorded", v)
 	}
 
+	if h.timeFrom.UnixNano() == 0 {
+		h.timeFrom = time.Now()
+	}
+
 	// this is not actually 'Read' operation, but here allows concurrent recording but blocks when taking snapshot
 	h.snapMu.RLock()
 	atomic.AddInt64(&h.counts[idx], n)
@@ -277,6 +285,10 @@ func (h *Histogram) UnrecordValues(v, n int64) error {
 	idx := h.countsIndexFor(v)
 	if idx < 0 || int(h.countsLen) <= idx {
 		return fmt.Errorf("value %d is too large to be unrecorded", v)
+	}
+
+	if h.timeFrom.UnixNano() == 0 {
+		h.timeFrom = time.Now()
 	}
 
 	// this is not actually 'Read' operation, but here allows concurrent recording but blocks when taking snapshot
@@ -405,6 +417,8 @@ func (h *Histogram) snapshot(drain bool) *Snapshot {
 		}
 	}
 
+	timeFrom := h.timeFrom
+	timeTo := time.Now()
 	var counts []int64
 	// acquire exclusive lock
 	if drain {
@@ -413,6 +427,7 @@ func (h *Histogram) snapshot(drain bool) *Snapshot {
 		h.snapMu.Lock()
 		counts = h.counts[:highestCount+1]
 		h.counts = newCounts
+		h.timeFrom = time.Now() // reset timestamp
 		h.snapMu.Unlock()
 	} else {
 		// copy counts
@@ -423,6 +438,8 @@ func (h *Histogram) snapshot(drain bool) *Snapshot {
 	}
 
 	return &Snapshot{
+		TimeFrom:              timeFrom,
+		TimeTo:                timeTo,
 		LowestTrackableValue:  h.lowestTrackableValue,
 		HighestTrackableValue: h.highestTrackableValue,
 		SignificantFigures:    h.significantFigures,
