@@ -5,7 +5,6 @@ package hdrhistogram
 
 import (
 	"fmt"
-	"io"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -354,33 +353,6 @@ func (h *Histogram) LowestTrackableValue() int64 {
 // to the histogram
 func (h *Histogram) HighestTrackableValue() int64 {
 	return h.highestTrackableValue
-}
-
-// Outputs the percentile distribution in the HdrHistogram standard format
-// can be plotted by: http://hdrhistogram.github.io/HdrHistogram/plotFiles.html
-func (h *Histogram) OutputPercentileDistribution(writer io.Writer, scalingRatio int64) {
-	_, err := fmt.Fprintln(writer, "\"Value\",\"Percentile\",\"TotalCount\",\"1/(1-Percentile)")
-	if err != nil {
-		fmt.Printf("failed to write header due to: %v", err)
-	}
-	percentileFormatString := fmt.Sprintf("%%.%vf,%%.12f,%%d,%%.2f\n", h.significantFigures)
-	lastLinePercentileFormatString := fmt.Sprintf("%%.%vf,%%.12f,%%d,Infinity\n", h.significantFigures)
-
-	i := h.pIterator(3)
-	for i.next() {
-		if i.percentile != 100.0 {
-			_, err := fmt.Fprintln(writer, percentileFormatString, i.valueFromIdx/scalingRatio, i.percentile, i.countToIdx, 1/(1.0-(i.percentileToIteratorTo/100.0)))
-			if err != nil {
-				fmt.Printf("failed to write header due to: %v", err)
-				break
-			}
-		} else {
-			_, err := fmt.Fprintln(writer, lastLinePercentileFormatString, i.valueFromIdx, i.percentile, i.countToIdx)
-			if err != nil {
-				fmt.Printf("failed to write header due to: %v", err)
-			}
-		}
-	}
 }
 
 // Histogram bar for plotting
