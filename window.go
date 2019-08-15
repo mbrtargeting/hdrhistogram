@@ -1,5 +1,7 @@
 package hdrhistogram
 
+import "sync"
+
 // A WindowedHistogram combines histograms to provide windowed statistics.
 type WindowedHistogram struct {
 	idx int
@@ -8,6 +10,7 @@ type WindowedHistogram struct {
 	tmp *Histogram
 
 	Current *Histogram
+	snapMu  sync.RWMutex
 }
 
 // NewWindowed creates a new WindowedHistogram with N underlying histograms with
@@ -31,6 +34,8 @@ func NewWindowed(n int, minValue, maxValue int64, sigfigs int) *WindowedHistogra
 // Merge returns a histogram which includes the recorded values from all the
 // sections of the window.
 func (w *WindowedHistogram) Merge() *Histogram {
+	w.snapMu.Lock()
+	defer w.snapMu.Unlock()
 	w.tmp.Reset()
 	w.tmp.Merge(w.m)
 	w.tmp.Merge(w.Current)
@@ -40,6 +45,8 @@ func (w *WindowedHistogram) Merge() *Histogram {
 // Rotate resets the oldest histogram and rotates it to be used as the current
 // histogram. Returns merged histogram the same Merge would return.
 func (w *WindowedHistogram) Rotate() *Histogram {
+	w.snapMu.Lock()
+	defer w.snapMu.Unlock()
 	if w.Current != nil {
 		w.m.Merge(w.Current)
 	}
@@ -47,5 +54,4 @@ func (w *WindowedHistogram) Rotate() *Histogram {
 	w.Current = w.h[w.idx%len(w.h)]
 	w.m.Unmerge(w.Current)
 	w.Current.Reset()
-	return w.m
 }
