@@ -54,4 +54,5 @@ func (w *WindowedHistogram) Rotate() *Histogram {
 	w.Current = w.h[w.idx%len(w.h)]
 	w.m.Unmerge(w.Current)
 	w.Current.Reset()
+	return w.m
 }
